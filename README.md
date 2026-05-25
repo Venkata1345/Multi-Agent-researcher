@@ -31,7 +31,7 @@ critic loop is capped at 3 cycles.
 ## Status
 
 - [x] **Phase 1** — Skeleton + Pydantic A2A schemas + LangGraph wiring (stub agents, no LLM)
-- [ ] **Phase 2** — Real LLM calls with structured outputs + LangSmith tracing
+- [x] **Phase 2** — Real LLM calls with structured outputs + LangSmith auto-tracing
 - [ ] **Phase 3** — MCP servers + real tool calls + citations
 - [ ] **Phase 4** — Observability metrics + evals + demo artifacts + docs
 
