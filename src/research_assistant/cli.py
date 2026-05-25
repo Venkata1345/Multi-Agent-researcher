@@ -11,6 +11,7 @@ import asyncio
 import sys
 
 from research_assistant.graph import DEFAULT_MAX_ITERATIONS, run_research
+from research_assistant.observability import configure_logging, configure_tracing
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -30,6 +31,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def _amain(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
+    configure_logging()
+    configure_tracing()  # enables LangSmith auto-tracing if configured in .env
     report = await run_research(args.question, max_iterations=args.max_iterations)
     sys.stdout.write(report.body_markdown + "\n")
     return 0
