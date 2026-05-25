@@ -1,66 +1,92 @@
-﻿"""End-to-end graph tests (Phase 1: stub agents, no network/LLM)."""
+"""End-to-end graph tests: real agents driven by a mocked LLM (no network)."""
 
 from __future__ import annotations
 
-from research_assistant.agents.base import BaseAgent
-from research_assistant.graph import build_graph, run_research
-from research_assistant.messages import CriticInput, CritiqueResult, Gap, Report, Severity
+from langchain_core.language_models import BaseChatModel
+
+from research_assistant.agents import (
+    CriticAgent,
+    PlannerAgent,
+    ResearcherAgent,
+    WriterAgent,
+)
+from research_assistant.graph import build_graph
+from research_assistant.messages import (
+    CritiqueResult,
+    Report,
+    ResearchFindings,
+    ResearchPlan,
+)
+from tests.fakes import (
+    FakeChatModel,
+    make_critique,
+    make_findings,
+    make_plan,
+    make_report,
+)
 
 
-async def test_end_to_end_returns_report():
-    report = await run_research("What is retrieval-augmented generation?")
-    assert isinstance(report, Report)
-    assert report.question == "What is retrieval-augmented generation?"
-    assert report.body_markdown.startswith("# ")
-
-
-async def test_critic_loop_fires_exactly_once_with_stub():
-    # Stub critic raises one gap on the first pass, then signs off -> one loop.
-    graph = build_graph()
-    state = await graph.ainvoke(
-        {"question": "Q", "max_iterations": 3, "iteration": 0}
+def _graph_with(model: BaseChatModel):
+    """Build the graph with the real agents, all sharing one (fake) model."""
+    return build_graph(
+        planner=PlannerAgent(model=model),
+        researcher=ResearcherAgent(model=model),
+        critic=CriticAgent(model=model),
+        writer=WriterAgent(model=model),
     )
-    assert state["iteration"] == 2  # critic ran twice
-    # planner makes 3 steps -> 3 findings, then +1 gap-closing finding.
-    assert len(state["findings"]) == 4
+
+
+async def test_end_to_end_no_gaps_goes_straight_to_writer():
+    model = FakeChatModel(
+        {
+            ResearchPlan: make_plan(2, "What is RAG?"),
+            ResearchFindings: make_findings(1, 2),
+            CritiqueResult: make_critique(with_gaps=False),
+            Report: make_report("What is RAG?"),
+        }
+    )
+    state = await _graph_with(model).ainvoke(
+        {"question": "What is RAG?", "max_iterations": 3, "iteration": 0}
+    )
+
+    assert isinstance(state["report"], Report)
+    assert state["iteration"] == 1  # critic ran once, no loop-back
     assert state["critique"].has_gaps is False
 
 
-class _AlwaysGapCritic(BaseAgent[CriticInput, CritiqueResult]):
-    name = "always-gap-critic"
-
-    async def run(self, payload: CriticInput) -> CritiqueResult:
-        return CritiqueResult(
-            coverage_score=0.5,
-            citation_quality=0.1,
-            assessment="never satisfied",
-            gaps=[Gap(description="always more", severity=Severity.LOW)],
-        )
-
-
-async def test_max_iterations_cap_is_enforced():
-    graph = build_graph(critic=_AlwaysGapCritic())
-    state = await graph.ainvoke(
-        {"question": "Q", "max_iterations": 2, "iteration": 0}
+async def test_critic_loop_fires_once_then_writes():
+    # Queues: researcher and critic are each called twice.
+    model = FakeChatModel(
+        {
+            ResearchPlan: make_plan(2),
+            ResearchFindings: [make_findings(1, 2), make_findings(1)],
+            CritiqueResult: [make_critique(with_gaps=True), make_critique(with_gaps=False)],
+            Report: make_report(),
+        }
     )
-    # Loop must stop at the cap and still produce a report.
-    assert state["iteration"] == 2
+    state = await _graph_with(model).ainvoke(
+        {"question": "Q", "max_iterations": 3, "iteration": 0}
+    )
+
+    assert state["iteration"] == 2  # looped back once
+    # pass-1 findings (2) + gap-closing finding (1), merged by the researcher
+    assert len(state["findings"]) == 3
     assert isinstance(state["report"], Report)
 
 
-class _NoGapCritic(BaseAgent[CriticInput, CritiqueResult]):
-    name = "no-gap-critic"
-
-    async def run(self, payload: CriticInput) -> CritiqueResult:
-        return CritiqueResult(
-            coverage_score=1.0, citation_quality=0.5, assessment="great", gaps=[]
-        )
-
-
-async def test_no_gaps_skips_straight_to_writer():
-    graph = build_graph(critic=_NoGapCritic())
-    state = await graph.ainvoke(
-        {"question": "Q", "max_iterations": 3, "iteration": 0}
+async def test_max_iterations_cap_is_enforced():
+    # Critic never satisfied: a single (reused) gap-bearing critique.
+    model = FakeChatModel(
+        {
+            ResearchPlan: make_plan(2),
+            ResearchFindings: make_findings(1, 2),
+            CritiqueResult: make_critique(with_gaps=True),
+            Report: make_report(),
+        }
     )
-    assert state["iteration"] == 1  # critic ran once, no loop-back
+    state = await _graph_with(model).ainvoke(
+        {"question": "Q", "max_iterations": 2, "iteration": 0}
+    )
+
+    assert state["iteration"] == 2  # stopped at the cap despite open gaps
     assert isinstance(state["report"], Report)
