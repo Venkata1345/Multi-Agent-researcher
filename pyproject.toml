@@ -1,0 +1,41 @@
+[project]
+name = "multi-agent-research"
+version = "0.1.0"
+description = "Multi-agent research assistant: planner/researcher/critic/writer agents coordinating via A2A messages over LangGraph, with MCP tools and LangSmith tracing."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Abhishek" }]
+dependencies = [
+    # Phase 1 runtime. LLM (openai/langchain-openai), MCP (mcp/tavily) deps
+    # are added at their phase gates so `uv sync` reflects what is actually used.
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "langgraph>=0.2.28",
+    "langchain-core>=0.3.0",
+    "langsmith>=0.1.120",
+]
+
+[project.scripts]
+research = "research_assistant.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/research_assistant"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
