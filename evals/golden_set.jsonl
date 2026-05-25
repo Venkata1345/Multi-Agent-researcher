@@ -1,0 +1,2 @@
+{"id": "rag-basics", "question": "What is retrieval-augmented generation and why is it used?", "expected_points": ["Combines a retriever with a generator LLM", "Reduces hallucination by grounding in external documents", "Avoids costly fine-tuning for fresh knowledge"]}
+{"id": "langgraph-vs-agents", "question": "How does LangGraph differ from LangChain agents?", "expected_points": ["LangGraph is a graph/state-machine with explicit edges", "Supports checkpointing and loops", "LangChain agents are higher-level ReAct loops"]}
