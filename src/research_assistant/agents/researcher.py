@@ -1,48 +1,53 @@
-﻿"""Researcher agent.
+"""Researcher agent.
 
-Phase 1: synthesizes a placeholder ``ResearchFinding`` per plan step (or per gap
-on a re-run) with no real citations. The researcher *owns accumulation*: it
-returns the complete findings set (prior + new) each call, so the graph node can
-simply replace state.
+Phase 2: generates findings via a structured-output LLM call (no tools yet, so
+findings are uncited -- real citations arrive with the MCP tools in Phase 3).
 
-Phase 3 is where this agent grows teeth: it will call the web-search and
-filesystem MCP tools, and citations will come from real URLs.
+The researcher *owns accumulation*: the LLM is asked only for findings on the
+current steps/gaps, and the agent merges them with prior findings so the graph
+node can simply replace state. On a re-run it focuses the LLM on the critic's
+gaps rather than re-researching everything.
 """
 
 from __future__ import annotations
 
+import json
+
 from research_assistant.agents.base import BaseAgent
-from research_assistant.messages import ResearcherInput, ResearchFinding, ResearchFindings
+from research_assistant.messages import ResearcherInput, ResearchFindings
 
 
 class ResearcherAgent(BaseAgent[ResearcherInput, ResearchFindings]):
     name = "researcher"
+    prompt_name = "researcher"
 
     async def run(self, payload: ResearcherInput) -> ResearchFindings:
-        new: list[ResearchFinding] = []
-
         if payload.gaps:
-            # Re-run: address the critic's gaps specifically.
-            for gap in payload.gaps:
-                new.append(
-                    ResearchFinding(
-                        step_id=gap.related_step_id or 0,
-                        summary=(
-                            f"[stub] Additional research closing the gap: "
-                            f"{gap.description}"
-                        ),
-                        confidence=0.7,
-                    )
-                )
+            task = (
+                "Close these gaps from the critic (research only these):\n"
+                + json.dumps([g.model_dump(mode="json") for g in payload.gaps], indent=2)
+            )
         else:
-            # First pass: one finding per plan step.
-            for step in payload.plan.steps:
-                new.append(
-                    ResearchFinding(
-                        step_id=step.id,
-                        summary=f"[stub] Findings for step {step.id}: {step.question}",
-                        confidence=0.5,
-                    )
+            task = (
+                "Produce one finding per research step below:\n"
+                + json.dumps(
+                    [s.model_dump(mode="json") for s in payload.plan.steps], indent=2
                 )
+            )
 
-        return ResearchFindings(findings=[*payload.prior_findings, *new])
+        prior = (
+            json.dumps(
+                [f.model_dump(mode="json") for f in payload.prior_findings], indent=2
+            )
+            if payload.prior_findings
+            else "(none yet)"
+        )
+
+        user = (
+            f"Research objective: {payload.plan.objective}\n\n"
+            f"{task}\n\n"
+            f"Findings already gathered (for context, do NOT repeat):\n{prior}"
+        )
+
+        new = await self._complete(user=user, schema=ResearchFindings)
+        return ResearchFindings(findings=[*payload.prior_findings, *new.findings])
