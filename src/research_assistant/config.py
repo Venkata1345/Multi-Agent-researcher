@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     provider: Literal["openai", "anthropic"] = "openai"
     research_model: str = Field(default="gpt-4o-mini")
     openai_api_key: str | None = None
+    temperature: float = Field(default=0.3, ge=0.0, le=2.0)
+    # "function_calling" tolerates our full schema set (incl. HttpUrl/`format: uri`,
+    # which OpenAI's strict `json_schema` rejects). Flip to "json_schema" only if
+    # the message schemas are constrained to the strict-mode subset.
+    structured_output_method: Literal["function_calling", "json_schema"] = (
+        "function_calling"
+    )
 
     # --- Observability ---
     langsmith_tracing: bool = False

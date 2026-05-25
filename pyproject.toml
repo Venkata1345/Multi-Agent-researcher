@@ -6,12 +6,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "Abhishek" }]
 dependencies = [
-    # Phase 1 runtime. LLM (openai/langchain-openai), MCP (mcp/tavily) deps
-    # are added at their phase gates so `uv sync` reflects what is actually used.
+    # MCP (mcp/tavily) deps are added at the Phase 3 gate so `uv sync`
+    # reflects what is actually used.
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "langgraph>=0.2.28",
     "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",  # ChatOpenAI structured outputs + LangSmith auto-tracing
     "langsmith>=0.1.120",
 ]
 
