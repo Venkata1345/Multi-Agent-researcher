@@ -25,14 +25,14 @@ critic loop is capped at 3 cycles.
 | A2A messaging (typed) | `src/research_assistant/messages.py` |
 | LangGraph orchestration + loop | `src/research_assistant/graph.py` |
 | Specialist agents | `src/research_assistant/agents/` |
-| MCP tools (web search, filesystem) | `src/research_assistant/mcp_servers/`, `mcp_client.py` _(Phase 3)_ |
+| MCP tools (web search, filesystem) | `src/research_assistant/mcp_servers/`, `mcp_client.py` — see [docs/mcp.md](docs/mcp.md) |
 | LangSmith tracing + per-agent metrics | `src/research_assistant/observability.py` _(Phase 2/4)_ |
 
 ## Status
 
 - [x] **Phase 1** — Skeleton + Pydantic A2A schemas + LangGraph wiring (stub agents, no LLM)
 - [x] **Phase 2** — Real LLM calls with structured outputs + LangSmith auto-tracing
-- [ ] **Phase 3** — MCP servers + real tool calls + citations
+- [x] **Phase 3** — MCP servers (Tavily web search + sandboxed filesystem) + retrieval-grounded citations
 - [ ] **Phase 4** — Observability metrics + evals + demo artifacts + docs
 
 ## Try it locally

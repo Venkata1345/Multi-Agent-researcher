@@ -18,8 +18,23 @@ _Tradeoffs, expanded in Phase 4. Captured here as they are made._
   from the findings/steps relationship; the graph independently enforces a hard
   `max_iterations` cap so the loop can never run away.
 
+## Phase 3
+
+- **MCP over direct API wrappers.** Tools are separate stdio servers spoken to via
+  the MCP protocol, not Tavily/filesystem calls embedded in the agent. Cost: extra
+  process + serialization. Benefit: a uniform, swappable tool interface; capability
+  scoping enforced at the server boundary; the same servers work with any MCP
+  client (Inspector, Claude Desktop). See [mcp.md](mcp.md).
+- **Deterministic search-per-step, not LLM-driven tool-calling.** The researcher
+  code orchestrates `search` per step and feeds results to the LLM, rather than
+  letting the model decide when to call tools. More predictable, cheaper, far
+  easier to test/trace; a linear research pipeline doesn't need agentic tool loops.
+- **Index-based citations.** The LLM returns indices into the retrieved source
+  list; code maps them to `Citation` objects. Guarantees no hallucinated URLs.
+- **Tools injected into the researcher.** Lets the integration test run against a
+  fake and keeps the MCP lifecycle owned by `run_research`.
+
 ## To be written (Phase 4)
 
 - (a) Why LangGraph over LangChain agents
-- (b) Why MCP over direct tool wrappers
 - (c) What the critic loop trades off (quality vs. latency vs. cost)
