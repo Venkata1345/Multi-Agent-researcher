@@ -9,9 +9,10 @@
 **Stack:** Python 3.11 · uv · LangGraph · Pydantic v2 · MCP (official SDK) ·
 LangSmith · OpenAI (one-line swap to Anthropic)
 
-<!-- Add screenshots to assets/ and embed them here + in the Demo section. -->
-> **🖥️ Demo:** a Streamlit UI over the pipeline — see [Demo](#demo). Run it with
-> `uv run --extra demo streamlit run app.py`.
+> **🖥️ Demo:** a Streamlit UI over the pipeline — run it with
+> `uv run --extra demo streamlit run app.py` (see [Demo](#demo)).
+
+![Streamlit demo: ask a question, the agents plan/search/critique/write, and a cited report appears](assets/ui-demo.gif)
 
 ## Architecture
 
@@ -89,10 +90,9 @@ uv run python evals/run_eval.py            # full suite (needs API keys)
 uv run python evals/run_eval.py --limit 3  # quick smoke test
 ```
 
-Results are written to `evals/results/` as JSON + a markdown table (`latest.md`).
+Results are written to `evals/results/` as JSON + a markdown table (`latest.md`):
 
-<!-- EVAL RESULTS: paste the latest.md table here after a run. -->
-> _Run the suite and paste the results table here._
+![Eval results: per-question relevance, coverage, citation-quality, hallucination, composite](assets/eval.png)
 
 ## Demo
 
@@ -106,16 +106,12 @@ uv run --extra demo streamlit run app.py
 
 It shows metric cards (cost / latency / tokens / critic loops / citations) above
 tabs for the rendered report, the plan, per-step findings, the critique, and the
-per-agent metrics table.
+per-agent metrics table (see the GIF at the top).
 
-<!-- Save PNGs under assets/ and embed them here. Suggested shots: -->
-| Screenshot | What it shows |
-|---|---|
-| `assets/ui-report.png` | The Streamlit app: metric cards + rendered cited report |
-| `assets/langsmith-trace.png` | LangSmith nested trace (researcher → MCP search/write_file) |
-| `assets/eval-results.png` | The `evals/run_eval.py` results table |
+**LangSmith trace** — the nested run tree, with the researcher's MCP `search` /
+`write_file` calls nested inside the agent:
 
-> _Add the PNGs to `assets/` and replace this note with the embedded images._
+![LangSmith nested trace showing MCP tool calls under the researcher agent](assets/trace.png)
 
 ## Development
 
