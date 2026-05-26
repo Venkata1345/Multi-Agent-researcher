@@ -1,16 +1,26 @@
-"""Observability: logging + LangSmith tracing setup, custom per-agent metrics.
+"""Observability: logging, LangSmith tracing, and per-agent cost/latency metrics.
 
-Tracing is *auto*: LangChain/LangGraph runnables export to LangSmith whenever the
-``LANGSMITH_*`` environment is set, so every agent LLM call and graph node shows
-up as a nested run with no per-call instrumentation. ``configure_tracing`` just
-translates our typed ``Settings`` into that environment. (Phase 4 adds custom
-per-agent latency / token / cost metadata on top.)
+Two layers:
+
+1. **Tracing** is automatic -- LangChain/LangGraph runnables export to LangSmith
+   whenever the ``LANGSMITH_*`` environment is set, so every agent LLM call and
+   graph node shows up as a nested run. ``configure_tracing`` just translates our
+   typed ``Settings`` into that environment.
+
+2. **Metrics** are explicit. ``record_llm_call`` captures latency + token usage
+   for each agent's LLM call, estimates cost from a per-model pricing table, and
+   (a) collects it into a ``metrics_session`` for an end-of-run summary table and
+   (b) best-effort attaches it as metadata on the active LangSmith run.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from typing import Iterator
 
 from research_assistant.config import Settings, get_settings
 
@@ -18,6 +28,9 @@ _CONFIGURED = False
 _log = logging.getLogger("research_assistant.observability")
 
 
+# --------------------------------------------------------------------------- #
+# Logging + tracing setup
+# --------------------------------------------------------------------------- #
 def configure_logging(level: int = logging.INFO) -> None:
     """Idempotently configure root logging for the CLI."""
     global _CONFIGURED
@@ -51,3 +64,135 @@ def configure_tracing(settings: Settings | None = None) -> bool:
 
 def get_logger(name: str) -> logging.Logger:
     return logging.getLogger(name)
+
+
+# --------------------------------------------------------------------------- #
+# Cost / latency metrics
+# --------------------------------------------------------------------------- #
+#: USD per 1M tokens, (input, output). Update as pricing changes.
+PRICING: dict[str, tuple[float, float]] = {
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    "gpt-4.1": (2.00, 8.00),
+}
+
+
+@dataclass(slots=True)
+class LLMCallMetric:
+    agent: str
+    model: str
+    latency_s: float
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate USD cost for a call. Returns 0.0 for models not in PRICING."""
+    if model not in PRICING:
+        _log.debug("No pricing for model %r; cost estimated as 0.", model)
+        return 0.0
+    in_price, out_price = PRICING[model]
+    return (input_tokens / 1e6) * in_price + (output_tokens / 1e6) * out_price
+
+
+# Collector for the current research run. A mutable list shared across async
+# tasks (we append, never reassign), so it survives context copying in LangGraph.
+_METRICS: ContextVar[list[LLMCallMetric] | None] = ContextVar("_metrics", default=None)
+
+
+@contextmanager
+def metrics_session() -> Iterator[list[LLMCallMetric]]:
+    """Collect every ``record_llm_call`` within the block into one list."""
+    buffer: list[LLMCallMetric] = []
+    token = _METRICS.set(buffer)
+    try:
+        yield buffer
+    finally:
+        _METRICS.reset(token)
+
+
+def record_llm_call(
+    *, agent: str, model: str, latency_s: float, usage: dict | None
+) -> LLMCallMetric:
+    """Record one agent LLM call: collect it, log it, and tag the LangSmith run."""
+    usage = usage or {}
+    in_tok = int(usage.get("input_tokens", 0) or 0)
+    out_tok = int(usage.get("output_tokens", 0) or 0)
+    metric = LLMCallMetric(
+        agent=agent,
+        model=model,
+        latency_s=latency_s,
+        input_tokens=in_tok,
+        output_tokens=out_tok,
+        cost_usd=estimate_cost(model, in_tok, out_tok),
+    )
+
+    buffer = _METRICS.get()
+    if buffer is not None:
+        buffer.append(metric)
+
+    _log.info(
+        "agent=%-10s model=%-12s latency=%5.2fs tokens=%d/%d cost=$%.5f",
+        metric.agent, metric.model, metric.latency_s,
+        metric.input_tokens, metric.output_tokens, metric.cost_usd,
+    )
+    _attach_to_langsmith_run(metric)
+    return metric
+
+
+def _attach_to_langsmith_run(metric: LLMCallMetric) -> None:
+    """Best-effort: stamp the active LangSmith run with this metric's metadata."""
+    try:
+        from langsmith.run_helpers import get_current_run_tree
+
+        run = get_current_run_tree()
+        if run is not None:
+            run.metadata.update(
+                {
+                    "agent": metric.agent,
+                    "latency_s": round(metric.latency_s, 3),
+                    "input_tokens": metric.input_tokens,
+                    "output_tokens": metric.output_tokens,
+                    "cost_usd": round(metric.cost_usd, 6),
+                }
+            )
+    except Exception:  # pragma: no cover - tracing is optional, never fatal
+        pass
+
+
+def render_metrics_table(metrics: list[LLMCallMetric]) -> str:
+    """Render per-agent aggregated metrics as a markdown table + totals row."""
+    if not metrics:
+        return "(no LLM calls recorded)"
+
+    by_agent: dict[str, dict[str, float]] = {}
+    for m in metrics:
+        a = by_agent.setdefault(
+            m.agent, {"calls": 0, "latency_s": 0.0, "in": 0, "out": 0, "cost": 0.0}
+        )
+        a["calls"] += 1
+        a["latency_s"] += m.latency_s
+        a["in"] += m.input_tokens
+        a["out"] += m.output_tokens
+        a["cost"] += m.cost_usd
+
+    rows = [
+        "| Agent | Calls | Latency (s) | In tok | Out tok | Cost (USD) |",
+        "|-------|------:|------------:|-------:|--------:|-----------:|",
+    ]
+    for agent, a in by_agent.items():
+        rows.append(
+            f"| {agent} | {int(a['calls'])} | {a['latency_s']:.2f} | "
+            f"{int(a['in'])} | {int(a['out'])} | ${a['cost']:.5f} |"
+        )
+    total_lat = sum(m.latency_s for m in metrics)
+    total_in = sum(m.input_tokens for m in metrics)
+    total_out = sum(m.output_tokens for m in metrics)
+    total_cost = sum(m.cost_usd for m in metrics)
+    rows.append(
+        f"| **total** | **{len(metrics)}** | **{total_lat:.2f}** | "
+        f"**{total_in}** | **{total_out}** | **${total_cost:.5f}** |"
+    )
+    return "\n".join(rows)

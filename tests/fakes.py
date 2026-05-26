@@ -25,20 +25,31 @@ from research_assistant.messages import (
 )
 
 
+class _FakeRaw:
+    """Stand-in for a raw AIMessage carrying token usage."""
+
+    usage_metadata = {"input_tokens": 12, "output_tokens": 8, "total_tokens": 20}
+
+
 class _FakeStructuredRunnable:
-    def __init__(self, schema: type[A2AMessage], parent: "FakeChatModel") -> None:
+    def __init__(
+        self, schema: type[A2AMessage], parent: "FakeChatModel", include_raw: bool
+    ) -> None:
         self._schema = schema
         self._parent = parent
+        self._include_raw = include_raw
 
-    async def ainvoke(self, messages: list[Any], config: Any = None) -> A2AMessage:
+    async def ainvoke(self, messages: list[Any], config: Any = None) -> Any:
         self._parent.calls.append((self._schema, messages))
         resp = self._parent.responses.get(self._schema)
         if isinstance(resp, list):
             if not resp:
                 raise AssertionError(f"FakeChatModel queue exhausted for {self._schema}")
-            return resp.pop(0)
+            resp = resp.pop(0)
         if resp is None:
             raise AssertionError(f"FakeChatModel has no response for {self._schema}")
+        if self._include_raw:
+            return {"raw": _FakeRaw(), "parsed": resp, "parsing_error": None}
         return resp
 
 
@@ -55,9 +66,13 @@ class FakeChatModel:
         self.calls: list[tuple[type[A2AMessage], list[Any]]] = []
 
     def with_structured_output(
-        self, schema: type[A2AMessage], method: str | None = None, **kwargs: Any
+        self,
+        schema: type[A2AMessage],
+        method: str | None = None,
+        include_raw: bool = False,
+        **kwargs: Any,
     ) -> _FakeStructuredRunnable:
-        return _FakeStructuredRunnable(schema, self)
+        return _FakeStructuredRunnable(schema, self, include_raw)
 
     def last_user_text(self) -> str:
         """The human-message content of the most recent call."""

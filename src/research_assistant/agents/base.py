@@ -13,36 +13,44 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from importlib.resources import files
+from time import perf_counter
 from typing import Generic, TypeVar, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from research_assistant.config import Settings, get_settings
+from research_assistant.errors import AgentError
 from research_assistant.messages import A2AMessage
+from research_assistant.observability import record_llm_call
 
 InputT = TypeVar("InputT", bound=A2AMessage)
 OutputT = TypeVar("OutputT", bound=A2AMessage)
 SchemaT = TypeVar("SchemaT", bound=A2AMessage)
 
 
-def build_chat_model(settings: Settings | None = None) -> BaseChatModel:
-    """Construct the shared chat model. The provider branch lives only here."""
+def build_chat_model(
+    settings: Settings | None = None, *, model: str | None = None
+) -> BaseChatModel:
+    """Construct a chat model. The provider branch lives only here.
+
+    ``model`` overrides ``settings.research_model`` (used by the eval judge to run
+    on a different model than the one being graded).
+    """
     settings = settings or get_settings()
+    model_name = model or settings.research_model
     if settings.provider == "openai":
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(
-            model=settings.research_model,
+            model=model_name,
             temperature=settings.temperature,
             api_key=settings.openai_api_key,
         )
     if settings.provider == "anthropic":  # pragma: no cover - not wired in v1
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(
-            model=settings.research_model, temperature=settings.temperature
-        )
+        return ChatAnthropic(model=model_name, temperature=settings.temperature)
     raise ValueError(f"Unknown provider: {settings.provider!r}")
 
 
@@ -96,9 +104,14 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
         LangSmith trace tree.
         """
         system_prompt = system if system is not None else load_prompt(self.prompt_name)
+        # include_raw=True returns {"raw", "parsed", "parsing_error"} so we can
+        # read token usage off the raw message for cost/latency metrics.
         structured = self._model.with_structured_output(
-            schema, method=self._settings.structured_output_method
+            schema,
+            method=self._settings.structured_output_method,
+            include_raw=True,
         )
+        start = perf_counter()
         result = await structured.ainvoke(
             [
                 SystemMessage(content=system_prompt),
@@ -110,7 +123,22 @@ class BaseAgent(ABC, Generic[InputT, OutputT]):
                 "metadata": {"agent": self.name},
             },
         )
-        return cast(SchemaT, result)
+        latency_s = perf_counter() - start
+
+        parsed = result["parsed"]
+        if parsed is None:
+            raise AgentError(
+                f"{self.name}: structured output failed to parse "
+                f"({result.get('parsing_error')})"
+            )
+        usage = getattr(result["raw"], "usage_metadata", None)
+        record_llm_call(
+            agent=self.name,
+            model=self._settings.research_model,
+            latency_s=latency_s,
+            usage=usage,
+        )
+        return cast(SchemaT, parsed)
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic
         return f"<{type(self).__name__} name={self.name!r}>"

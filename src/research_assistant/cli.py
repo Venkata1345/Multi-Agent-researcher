@@ -11,7 +11,15 @@ import asyncio
 import sys
 
 from research_assistant.graph import DEFAULT_MAX_ITERATIONS, run_research
-from research_assistant.observability import configure_logging, configure_tracing
+from research_assistant.observability import (
+    configure_logging,
+    configure_tracing,
+    get_logger,
+    metrics_session,
+    render_metrics_table,
+)
+
+_log = get_logger("research_assistant.cli")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -33,8 +41,13 @@ async def _amain(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     configure_logging()
     configure_tracing()  # enables LangSmith auto-tracing if configured in .env
-    report = await run_research(args.question, max_iterations=args.max_iterations)
+
+    with metrics_session() as metrics:
+        report = await run_research(args.question, max_iterations=args.max_iterations)
+
+    # Report -> stdout (clean), metrics -> logs (stderr), so piping stays usable.
     sys.stdout.write(report.body_markdown + "\n")
+    _log.info("Per-agent metrics:\n%s", render_metrics_table(metrics))
     return 0
 
 
