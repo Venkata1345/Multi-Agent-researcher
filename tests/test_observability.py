@@ -8,6 +8,7 @@ from research_assistant.observability import (
     metrics_session,
     record_llm_call,
     render_metrics_table,
+    summarize_metrics,
 )
 
 
@@ -60,3 +61,18 @@ def test_render_metrics_table_aggregates_by_agent():
 
 def test_render_metrics_table_empty():
     assert "no LLM calls" in render_metrics_table([])
+
+
+def test_summarize_metrics_has_total_row():
+    metrics = [
+        LLMCallMetric("planner", "gpt-4o-mini", 1.0, 100, 50, 0.0001),
+        LLMCallMetric("writer", "gpt-4o-mini", 2.0, 300, 200, 0.0005),
+    ]
+    rows = summarize_metrics(metrics)
+    assert rows[-1]["agent"] == "total"
+    assert rows[-1]["calls"] == 2
+    assert abs(rows[-1]["cost_usd"] - 0.0006) < 1e-9
+
+
+def test_summarize_metrics_empty_is_empty():
+    assert summarize_metrics([]) == []

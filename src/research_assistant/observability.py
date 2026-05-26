@@ -162,37 +162,52 @@ def _attach_to_langsmith_run(metric: LLMCallMetric) -> None:
         pass
 
 
+def summarize_metrics(metrics: list[LLMCallMetric]) -> list[dict]:
+    """Aggregate metrics per agent, with a final ``total`` row.
+
+    Shared by the CLI markdown table and the Streamlit demo so they never drift.
+    """
+    by_agent: dict[str, dict[str, float]] = {}
+    for m in metrics:
+        a = by_agent.setdefault(
+            m.agent,
+            {"calls": 0, "latency_s": 0.0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+        )
+        a["calls"] += 1
+        a["latency_s"] += m.latency_s
+        a["input_tokens"] += m.input_tokens
+        a["output_tokens"] += m.output_tokens
+        a["cost_usd"] += m.cost_usd
+
+    rows = [{"agent": agent, **vals} for agent, vals in by_agent.items()]
+    if metrics:
+        rows.append(
+            {
+                "agent": "total",
+                "calls": len(metrics),
+                "latency_s": sum(m.latency_s for m in metrics),
+                "input_tokens": sum(m.input_tokens for m in metrics),
+                "output_tokens": sum(m.output_tokens for m in metrics),
+                "cost_usd": sum(m.cost_usd for m in metrics),
+            }
+        )
+    return rows
+
+
 def render_metrics_table(metrics: list[LLMCallMetric]) -> str:
     """Render per-agent aggregated metrics as a markdown table + totals row."""
     if not metrics:
         return "(no LLM calls recorded)"
 
-    by_agent: dict[str, dict[str, float]] = {}
-    for m in metrics:
-        a = by_agent.setdefault(
-            m.agent, {"calls": 0, "latency_s": 0.0, "in": 0, "out": 0, "cost": 0.0}
-        )
-        a["calls"] += 1
-        a["latency_s"] += m.latency_s
-        a["in"] += m.input_tokens
-        a["out"] += m.output_tokens
-        a["cost"] += m.cost_usd
-
     rows = [
         "| Agent | Calls | Latency (s) | In tok | Out tok | Cost (USD) |",
         "|-------|------:|------------:|-------:|--------:|-----------:|",
     ]
-    for agent, a in by_agent.items():
+    for r in summarize_metrics(metrics):
+        bold = "**" if r["agent"] == "total" else ""
         rows.append(
-            f"| {agent} | {int(a['calls'])} | {a['latency_s']:.2f} | "
-            f"{int(a['in'])} | {int(a['out'])} | ${a['cost']:.5f} |"
+            f"| {bold}{r['agent']}{bold} | {bold}{int(r['calls'])}{bold} | "
+            f"{bold}{r['latency_s']:.2f}{bold} | {bold}{int(r['input_tokens'])}{bold} | "
+            f"{bold}{int(r['output_tokens'])}{bold} | {bold}${r['cost_usd']:.5f}{bold} |"
         )
-    total_lat = sum(m.latency_s for m in metrics)
-    total_in = sum(m.input_tokens for m in metrics)
-    total_out = sum(m.output_tokens for m in metrics)
-    total_cost = sum(m.cost_usd for m in metrics)
-    rows.append(
-        f"| **total** | **{len(metrics)}** | **{total_lat:.2f}** | "
-        f"**{total_in}** | **{total_out}** | **${total_cost:.5f}** |"
-    )
     return "\n".join(rows)

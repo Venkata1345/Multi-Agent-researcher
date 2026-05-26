@@ -136,16 +136,18 @@ def build_graph(
     return builder.compile()
 
 
-async def run_research(
+async def run_research_state(
     question: str,
     *,
     max_iterations: int = DEFAULT_MAX_ITERATIONS,
     settings: Settings | None = None,
-) -> Report:
-    """Convenience entry point: run the full graph and return the final report.
+) -> GraphState:
+    """Run the full graph and return the complete final state.
 
     Owns the MCP tool lifecycle -- the web-search + filesystem servers are spawned
-    for the duration of the run and torn down on exit.
+    for the duration of the run and torn down on exit. Callers that only need the
+    report can use ``run_research``; the demo UI uses the full state (plan,
+    findings, critique, iteration count, report).
     """
     settings = settings or get_settings()
     async with build_research_tools(settings) as tools:
@@ -155,4 +157,17 @@ async def run_research(
         final_state = await graph.ainvoke(
             {"question": question, "max_iterations": max_iterations, "iteration": 0}
         )
-    return final_state["report"]
+    return final_state
+
+
+async def run_research(
+    question: str,
+    *,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    settings: Settings | None = None,
+) -> Report:
+    """Convenience entry point: run the full graph and return the final report."""
+    state = await run_research_state(
+        question, max_iterations=max_iterations, settings=settings
+    )
+    return state["report"]
