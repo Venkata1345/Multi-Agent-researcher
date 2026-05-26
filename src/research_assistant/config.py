@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # --- Model provider ---
     provider: Literal["openai", "anthropic"] = "openai"
     research_model: str = Field(default="gpt-4o-mini")
+    # LLM-as-judge model for evals. Deliberately *different* from research_model
+    # so the judge isn't grading its own output.
+    judge_model: str = Field(default="gpt-4o")
     openai_api_key: str | None = None
     temperature: float = Field(default=0.3, ge=0.0, le=2.0)
     # "function_calling" tolerates our full schema set (incl. HttpUrl/`format: uri`,
