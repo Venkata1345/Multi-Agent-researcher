@@ -10,8 +10,8 @@ Control flow:
                                             \--(no gaps | cap hit)--> writer -> END
 
 The critic loop is the reason this needs real state: ``findings`` accumulate
-across iterations and ``iteration`` enforces a hard cap. (Checkpointer-backed
-persistence lands in Phase 2; Phase 1 runs the loop in-memory.)
+across iterations and ``iteration`` enforces a hard cap. The loop runs in-memory;
+the researcher node calls live MCP tools (web search + filesystem).
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from langgraph.graph import END, START, StateGraph
 
 from research_assistant.agents import CriticAgent, PlannerAgent, ResearcherAgent, WriterAgent
 from research_assistant.agents.base import BaseAgent
+from research_assistant.config import Settings, get_settings
+from research_assistant.mcp_client import build_research_tools
 from research_assistant.messages import (
     CriticInput,
     CritiqueResult,
@@ -66,8 +68,12 @@ def build_graph(
     (Phase 1: stub) agents.
     """
 
+    if researcher is None:
+        raise ValueError(
+            "researcher must be provided: it requires live MCP tools. "
+            "Use run_research(), or build_research_tools() to construct one."
+        )
     planner = planner or PlannerAgent()
-    researcher = researcher or ResearcherAgent()
     critic = critic or CriticAgent()
     writer = writer or WriterAgent()
 
@@ -131,11 +137,22 @@ def build_graph(
 
 
 async def run_research(
-    question: str, *, max_iterations: int = DEFAULT_MAX_ITERATIONS
+    question: str,
+    *,
+    max_iterations: int = DEFAULT_MAX_ITERATIONS,
+    settings: Settings | None = None,
 ) -> Report:
-    """Convenience entry point: run the full graph and return the final report."""
-    graph = build_graph()
-    final_state = await graph.ainvoke(
-        {"question": question, "max_iterations": max_iterations, "iteration": 0}
-    )
+    """Convenience entry point: run the full graph and return the final report.
+
+    Owns the MCP tool lifecycle -- the web-search + filesystem servers are spawned
+    for the duration of the run and torn down on exit.
+    """
+    settings = settings or get_settings()
+    async with build_research_tools(settings) as tools:
+        graph = build_graph(
+            researcher=ResearcherAgent(tools=tools, settings=settings)
+        )
+        final_state = await graph.ainvoke(
+            {"question": question, "max_iterations": max_iterations, "iteration": 0}
+        )
     return final_state["report"]
