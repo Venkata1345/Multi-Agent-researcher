@@ -9,8 +9,9 @@
 **Stack:** Python 3.11 · uv · LangGraph · Pydantic v2 · MCP (official SDK) ·
 LangSmith · OpenAI (one-line swap to Anthropic)
 
-<!-- 🎥 DEMO VIDEO: <PASTE UNLISTED LOOM/YOUTUBE LINK HERE> -->
-> **▶️ Demo video:** _add link_ — see [Demo](#demo) for what it shows.
+<!-- Add screenshots to assets/ and embed them here + in the Demo section. -->
+> **🖥️ Demo:** a Streamlit UI over the pipeline — see [Demo](#demo). Run it with
+> `uv run --extra demo streamlit run app.py`.
 
 ## Architecture
 
@@ -43,7 +44,8 @@ cycles. Full walkthrough in [docs/architecture.md](docs/architecture.md).
 - [x] **Phase 1** — Skeleton + Pydantic A2A schemas + LangGraph wiring
 - [x] **Phase 2** — Real LLM calls with structured outputs + LangSmith auto-tracing
 - [x] **Phase 3** — MCP servers (Tavily web search + sandboxed filesystem) + retrieval-grounded citations
-- [x] **Phase 4** — Observability metrics + evals + docs _(demo video/screenshots pending)_
+- [x] **Phase 4** — Observability metrics + evals + docs
+- [x] **Demo** — Streamlit UI (`app.py`) _(screenshots + eval results table pending)_
 
 ## Try it locally
 
@@ -94,12 +96,26 @@ Results are written to `evals/results/` as JSON + a markdown table (`latest.md`)
 
 ## Demo
 
-<!-- Embed screenshots in docs/ or an assets/ folder and link them here. -->
-The demo lives in artifacts (this project has no hosted instance by design):
+A **Streamlit UI** wraps the pipeline (no hosted instance by design — it runs
+locally and is the source of the screenshots below):
 
-1. **Walkthrough video** — CLI invocation → structured planner output → researcher
-   hitting MCP web search → critic loop firing → final report → LangSmith trace tree.
-2. **Screenshots** — _(add)_ LangSmith nested trace · a sample report · the eval table.
+```bash
+uv sync --extra demo
+uv run --extra demo streamlit run app.py
+```
+
+It shows metric cards (cost / latency / tokens / critic loops / citations) above
+tabs for the rendered report, the plan, per-step findings, the critique, and the
+per-agent metrics table.
+
+<!-- Save PNGs under assets/ and embed them here. Suggested shots: -->
+| Screenshot | What it shows |
+|---|---|
+| `assets/ui-report.png` | The Streamlit app: metric cards + rendered cited report |
+| `assets/langsmith-trace.png` | LangSmith nested trace (researcher → MCP search/write_file) |
+| `assets/eval-results.png` | The `evals/run_eval.py` results table |
+
+> _Add the PNGs to `assets/` and replace this note with the embedded images._
 
 ## Development
 
