@@ -16,6 +16,11 @@ dependencies = [
     "tavily-python>=0.5.0",     # web-search backend behind the MCP search tool
 ]
 
+[project.optional-dependencies]
+# Optional Streamlit demo UI: `uv sync --extra demo` then
+# `uv run --extra demo streamlit run app.py`.
+demo = ["streamlit>=1.40"]
+
 [project.scripts]
 research = "research_assistant.cli:main"
 
