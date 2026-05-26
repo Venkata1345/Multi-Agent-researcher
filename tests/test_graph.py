@@ -10,27 +10,25 @@ from research_assistant.agents import (
     ResearcherAgent,
     WriterAgent,
 )
+from research_assistant.agents.researcher import FindingDraft
 from research_assistant.graph import build_graph
-from research_assistant.messages import (
-    CritiqueResult,
-    Report,
-    ResearchFindings,
-    ResearchPlan,
-)
+from research_assistant.messages import CritiqueResult, Report, ResearchPlan
 from tests.fakes import (
     FakeChatModel,
+    FakeResearchTools,
     make_critique,
-    make_findings,
+    make_draft,
     make_plan,
     make_report,
 )
 
 
 def _graph_with(model: BaseChatModel):
-    """Build the graph with the real agents, all sharing one (fake) model."""
+    """Build the graph with the real agents, all sharing one (fake) model and
+    fake MCP tools."""
     return build_graph(
         planner=PlannerAgent(model=model),
-        researcher=ResearcherAgent(model=model),
+        researcher=ResearcherAgent(tools=FakeResearchTools(), model=model),
         critic=CriticAgent(model=model),
         writer=WriterAgent(model=model),
     )
@@ -40,7 +38,7 @@ async def test_end_to_end_no_gaps_goes_straight_to_writer():
     model = FakeChatModel(
         {
             ResearchPlan: make_plan(2, "What is RAG?"),
-            ResearchFindings: make_findings(1, 2),
+            FindingDraft: make_draft(),
             CritiqueResult: make_critique(with_gaps=False),
             Report: make_report("What is RAG?"),
         }
@@ -52,14 +50,16 @@ async def test_end_to_end_no_gaps_goes_straight_to_writer():
     assert isinstance(state["report"], Report)
     assert state["iteration"] == 1  # critic ran once, no loop-back
     assert state["critique"].has_gaps is False
+    # 2 plan steps -> 2 findings, each citing the 2 retrieved sources
+    assert len(state["findings"]) == 2
+    assert all(f.citations for f in state["findings"])
 
 
 async def test_critic_loop_fires_once_then_writes():
-    # Queues: researcher and critic are each called twice.
     model = FakeChatModel(
         {
             ResearchPlan: make_plan(2),
-            ResearchFindings: [make_findings(1, 2), make_findings(1)],
+            FindingDraft: make_draft(),
             CritiqueResult: [make_critique(with_gaps=True), make_critique(with_gaps=False)],
             Report: make_report(),
         }
@@ -69,18 +69,17 @@ async def test_critic_loop_fires_once_then_writes():
     )
 
     assert state["iteration"] == 2  # looped back once
-    # pass-1 findings (2) + gap-closing finding (1), merged by the researcher
+    # pass-1 findings (2 steps) + gap-closing finding (1), merged by the researcher
     assert len(state["findings"]) == 3
     assert isinstance(state["report"], Report)
 
 
 async def test_max_iterations_cap_is_enforced():
-    # Critic never satisfied: a single (reused) gap-bearing critique.
     model = FakeChatModel(
         {
             ResearchPlan: make_plan(2),
-            ResearchFindings: make_findings(1, 2),
-            CritiqueResult: make_critique(with_gaps=True),
+            FindingDraft: make_draft(),
+            CritiqueResult: make_critique(with_gaps=True),  # never satisfied
             Report: make_report(),
         }
     )

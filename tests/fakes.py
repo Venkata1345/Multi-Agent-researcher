@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_assistant.agents.researcher import FindingDraft
 from research_assistant.messages import (
     A2AMessage,
     CritiqueResult,
@@ -19,6 +20,7 @@ from research_assistant.messages import (
     ResearchFindings,
     ResearchPlan,
     ResearchStep,
+    SearchResult,
     Severity,
 )
 
@@ -105,3 +107,39 @@ def make_report(question: str = "Q") -> Report:
         summary="executive summary",
         body_markdown="# A Report\n\nBody.",
     )
+
+
+def make_search_results(n: int = 2) -> list[SearchResult]:
+    return [
+        SearchResult(
+            title=f"Source {i}",
+            url=f"https://example.com/{i}",
+            content=f"content snippet {i}",
+            score=0.9 - i * 0.1,
+        )
+        for i in range(n)
+    ]
+
+
+def make_draft(
+    used: tuple[int, ...] = (0, 1), summary: str = "synthesized summary"
+) -> FindingDraft:
+    return FindingDraft(
+        summary=summary, confidence=0.8, used_source_indices=list(used)
+    )
+
+
+class FakeResearchTools:
+    """In-memory ``ResearchTools`` stand-in -- a 'fake MCP server' for tests."""
+
+    def __init__(self, results: list[SearchResult] | None = None) -> None:
+        self._results = results if results is not None else make_search_results(2)
+        self.searched: list[str] = []
+        self.written: dict[str, str] = {}
+
+    async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+        self.searched.append(query)
+        return list(self._results)
+
+    async def write_file(self, path: str, content: str) -> None:
+        self.written[path] = content
