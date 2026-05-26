@@ -86,6 +86,21 @@ class Citation(A2AMessage):
     )
 
 
+class SearchResult(BaseModel):
+    """A single web-search hit returned by the MCP ``search`` tool.
+
+    Not an A2A message -- it is a tool I/O type. ``extra="ignore"`` so the raw
+    Tavily payload (which carries extra keys) validates cleanly.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = ""
+    url: str = Field(description="Source URL of the hit.")
+    content: str = Field(default="", description="Snippet / extracted content.")
+    score: float | None = Field(default=None, description="Backend relevance score.")
+
+
 class ResearchFinding(A2AMessage):
     """Researcher output for one step: a synthesized answer with its sources."""
 
@@ -229,6 +244,7 @@ __all__ = [
     "ResearchStep",
     "ResearchPlan",
     "Citation",
+    "SearchResult",
     "ResearchFinding",
     "ResearchFindings",
     "Severity",
