@@ -23,6 +23,8 @@ Why the project is built the way it is. Each entry is the **decision**, the
 | 9 | Retrieval | Deterministic search-per-step | Predictable, cheap, easy to test/trace |
 | 10 | Citations | LLM returns source *indices* | Impossible to hallucinate a URL |
 | 11 | Testability | Tools injected into researcher | Integration tests run against a fake |
+| 12 | Orchestration | LangGraph over LangChain agents | Explicit, debuggable, loop-capable control flow |
+| 13 | Evals | LLM-as-judge on a *different* model | Avoids a model grading its own output |
 
 ---
 
@@ -110,7 +112,33 @@ subprocess lifecycle stays owned by `run_research`.
 
 ---
 
-## Still to write (Phase 4)
+---
 
-- Why LangGraph over LangChain agents
-- What the critic loop trades off: quality vs. latency vs. cost
+## Phase 4 — Observability & evals
+
+### 12. LangGraph over LangChain agents
+**Why:** the planner→researcher→critic→writer flow with a bounded feedback loop
+is explicit control flow. LangGraph models it as nodes + edges with shared typed
+state and a conditional edge for the loop — debuggable, checkpoint-ready, and
+cap-enforceable. A LangChain ReAct agent would hide that flow inside an opaque
+tool-calling loop that's hard to bound or trace.
+**Trade-off:** more wiring up front than handing a model some tools — paid back
+in predictability and observability.
+
+### 13. LLM-as-judge on a *different* model
+**Why:** evals score `gpt-4o-mini`'s output with a `gpt-4o` judge, so the grader
+isn't marking its own homework. Structured output gives calibrated 0-1 scores for
+relevance / coverage / citation-quality / hallucination.
+**Trade-off:** the judge is itself an LLM (noisy, not ground truth) — fine as a
+relative regression signal across runs, not an absolute measure.
+
+### The critic loop: quality vs. latency vs. cost
+The critic→researcher loop is the project's core quality/cost knob:
+
+- **More cycles → higher quality** (gaps get closed, citations improve) **but
+  linearly more latency and tokens/cost** — each cycle is another researcher pass
+  (N searches + N LLM calls) plus a critic call.
+- The hard `max_iterations` cap (default **3**) bounds worst-case cost.
+- The critic prompt is deliberately conservative about emitting gaps, because a
+  false-positive gap buys a full extra cycle for little gain. Returning an empty
+  gap list when coverage is sufficient is the correct, cheap outcome.
